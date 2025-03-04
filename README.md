@@ -23,7 +23,7 @@
 ### ۱. کلون کردن مخزن
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/couple-challenge-bot.git
+git clone https://github.com/farnad24/couple-challenge-bot.git
 cd couple-challenge-bot
 ```
 
@@ -125,9 +125,9 @@ python partners.db.py
 این ربات توسط [نام شما] ایجاد شده است.
 
 برای ارتباط با من:
-- تلگرام: [@your_telegram]
-- ایمیل: your.email@example.com
-- وب‌سایت: [yourwebsite.com](https://yourwebsite.com)
+- تلگرام: [@farnad24]
+- ایمیل: farnad24@gmail.com
+- وب‌سایت: https://ir.linkedin.com/in/farnad-babapour-4a17ba204
 
 ---
 
