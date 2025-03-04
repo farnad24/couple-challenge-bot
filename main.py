@@ -10,6 +10,8 @@ import string
 # 🔑 تنظیمات اصلی
 TOKEN = "7348198240:AAFYuKEYYE6e2squZI2FI5VV9ilQg83Bqig"
 ADMIN_ID = 227975536  # آیدی عددی مدیر
+REQUIRED_CHANNEL = "@your_channel"  # آیدی کانال اجباری (مثال: @your_channel)
+CHANNEL_TITLE = "کانال رسمی"  # عنوان کانال برای نمایش به کاربر
 
 # راه‌اندازی ربات
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +61,40 @@ def generate_unique_code():
     """ تولید کد یکتا برای کاربر """
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
+async def check_subscription(user_id):
+    """ بررسی وضعیت عضویت کاربر در کانال اجباری """
+    try:
+        member = await bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except Exception as e:
+        logging.error(f"خطا در بررسی عضویت کاربر {user_id}: {e}")
+        return False
+
+def get_subscription_keyboard():
+    """ ایجاد دکمه برای عضویت در کانال """
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"🔔 عضویت در {CHANNEL_TITLE}", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+            [InlineKeyboardButton(text="✅ بررسی مجدد عضویت", callback_data="check_subscription")]
+        ]
+    )
+    return keyboard
+
+async def check_user_subscription(message: types.Message):
+    """بررسی عضویت کاربر و ارسال پیام در صورت عدم عضویت"""
+    user_id = message.from_user.id
+    is_subscribed = await check_subscription(user_id)
+    
+    if not is_subscribed:
+        subscription_keyboard = get_subscription_keyboard()
+        await message.answer(
+            f"⚠️ برای استفاده از ربات، ابتدا باید در کانال {CHANNEL_TITLE} عضو شوید.",
+            reply_markup=subscription_keyboard
+        )
+        return False
+    
+    return True
+
 async def send_question(user_id, partner_id):
     """ ارسال سوال چالشی به دو پارتنر """
     question = random.choice(questions)
@@ -101,6 +137,18 @@ async def scheduled_questions():
 async def start(message: types.Message):
     """ ثبت‌نام و ایجاد کد اختصاصی """
     user_id = message.from_user.id
+    
+    # بررسی عضویت کاربر در کانال
+    is_subscribed = await check_subscription(user_id)
+    if not is_subscribed:
+        subscription_keyboard = get_subscription_keyboard()
+        await message.answer(
+            f"سلام {message.from_user.first_name}!\n\n⚠️ برای استفاده از ربات، ابتدا باید در کانال {CHANNEL_TITLE} عضو شوید.",
+            reply_markup=subscription_keyboard
+        )
+        return
+    
+    # ادامه روند معمول
     cursor.execute("SELECT unique_code, partner_id FROM users WHERE user_id=?", (user_id,))
     user_data = cursor.fetchone()
 
@@ -139,6 +187,10 @@ async def start(message: types.Message):
 @dp.message(Command("connect"))
 async def connect_partner_cmd(message: types.Message):
     """ مدیریت درخواست اتصال به پارتنر """
+    # بررسی عضویت کاربر در کانال
+    if not await check_user_subscription(message):
+        return
+    
     user_id = message.from_user.id
     cursor.execute("SELECT partner_id FROM users WHERE user_id=?", (user_id,))
     partner = cursor.fetchone()
@@ -156,6 +208,10 @@ async def connect_partner_cmd(message: types.Message):
 @dp.message(Command("manage"))
 async def manage_partner_cmd(message: types.Message):
     """ مدیریت پارتنر """
+    # بررسی عضویت کاربر در کانال
+    if not await check_user_subscription(message):
+        return
+    
     user_id = message.from_user.id
     cursor.execute("SELECT partner_id FROM users WHERE user_id=?", (user_id,))
     partner = cursor.fetchone()
@@ -198,9 +254,36 @@ async def disconnect_partner(callback: types.CallbackQuery):
     
     await callback.answer()
 
+@dp.callback_query(lambda c: c.data == "check_subscription")
+async def check_subscription_callback(callback: types.CallbackQuery):
+    """ بررسی مجدد عضویت کاربر در کانال """
+    user_id = callback.from_user.id
+    is_subscribed = await check_subscription(user_id)
+    
+    if is_subscribed:
+        await callback.message.edit_text("✅ عضویت شما در کانال تایید شد. حالا می‌توانید از ربات استفاده کنید!")
+        await callback.answer("✅ عضویت تایید شد")
+        
+        # ارسال منوی اصلی
+        menu = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="/connect - 🔗 اتصال به پارتنر")],
+                [KeyboardButton(text="/manage - 👤 مدیریت پارتنر")],
+                [KeyboardButton(text="/status - 📜 مشاهده وضعیت")],
+            ],
+            resize_keyboard=True
+        )
+        await callback.message.answer("🎮 منوی اصلی:", reply_markup=menu)
+    else:
+        await callback.answer("❌ شما هنوز عضو کانال نشده‌اید", show_alert=True)
+
 @dp.message(Command("status"))
 async def show_status_cmd(message: types.Message):
     """ نمایش وضعیت کاربر """
+    # بررسی عضویت کاربر در کانال
+    if not await check_user_subscription(message):
+        return
+    
     user_id = message.from_user.id
     cursor.execute("SELECT unique_code, partner_id FROM users WHERE user_id=?", (user_id,))
     user_data = cursor.fetchone()
@@ -230,6 +313,16 @@ async def show_status_cmd(message: types.Message):
 async def process_message(message: types.Message):
     """ مدیریت پیام‌ها و پاسخ‌های کاربران """
     user_id = message.from_user.id
+    
+    # بررسی عضویت کاربر در کانال
+    is_subscribed = await check_subscription(user_id)
+    if not is_subscribed:
+        subscription_keyboard = get_subscription_keyboard()
+        await message.answer(
+            f"⚠️ برای استفاده از ربات، ابتدا باید در کانال {CHANNEL_TITLE} عضو شوید.",
+            reply_markup=subscription_keyboard
+        )
+        return
     
     # بررسی وضعیت کاربر
     cursor.execute("SELECT partner_id, waiting_for_code FROM users WHERE user_id=?", (user_id,))
