@@ -8,7 +8,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 import string
 
 # 🔑 تنظیمات اصلی
-TOKEN = "7348198240:AAFYuKEYYE6e2squZI2FI5VV9ilQg83Bqig"
+TOKEN = "Robot Token"
 ADMIN_ID = 227975536  # آیدی عددی مدیر
 
 # راه‌اندازی ربات
