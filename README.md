@@ -23,7 +23,7 @@
 ### ۱. کلون کردن مخزن
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/couple-challenge-bot.git
+git clone https://github.com/farnad24/couple-challenge-bot.git
 cd couple-challenge-bot
 ```
 
