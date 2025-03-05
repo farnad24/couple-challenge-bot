@@ -13,6 +13,7 @@ ADMIN_ID = 227975536  # آیدی عددی مدیر
 REQUIRED_CHANNEL = "@your_channel"  # آیدی کانال اجباری (مثال: @your_channel)
 CHANNEL_TITLE = "کانال رسمی"  # عنوان کانال برای نمایش به کاربر
 
+
 # راه‌اندازی ربات
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -312,30 +313,47 @@ async def check_user_subscription(message: types.Message):
 
 async def send_question(user_id, partner_id):
     """ ارسال سوال چالشی به دو پارتنر """
-    question = random.choice(questions)
     
-    # حذف سوالات قبلی بدون پاسخ برای جلوگیری از تداخل
-    cursor.execute("DELETE FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (user_id, partner_id))
-    cursor.execute("DELETE FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (partner_id, user_id))
-    conn.commit()
+    # بررسی آیا کاربران سوال بی‌پاسخ دارند
+    cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (user_id, partner_id))
+    unanswered_user = cursor.fetchone()
     
-    question_id_1 = None
-    question_id_2 = None
+    cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (partner_id, user_id))
+    unanswered_partner = cursor.fetchone()
     
-    # ایجاد سوال جدید برای هر دو کاربر
-    cursor.execute("INSERT INTO questions (user_id, partner_id, question) VALUES (?, ?, ?)", (user_id, partner_id, question))
-    question_id_1 = cursor.lastrowid
+    # اگر کاربر اصلی سوال بی‌پاسخ دارد، یادآوری ارسال کن
+    if unanswered_user:
+        question_id, previous_question = unanswered_user
+        await bot.send_message(user_id, f"💬 یادآوری: شما هنوز به این سوال پاسخ نداده‌اید:\n\n{previous_question}\n\n✏️ لطفاً پاسخ خود را ارسال کنید.")
     
-    cursor.execute("INSERT INTO questions (user_id, partner_id, question) VALUES (?, ?, ?)", (partner_id, user_id, question))
-    question_id_2 = cursor.lastrowid
+    # اگر پارتنر سوال بی‌پاسخ دارد، یادآوری ارسال کن
+    if unanswered_partner:
+        question_id, previous_question = unanswered_partner
+        await bot.send_message(partner_id, f"💬 یادآوری: شما هنوز به این سوال پاسخ نداده‌اید:\n\n{previous_question}\n\n✏️ لطفاً پاسخ خود را ارسال کنید.")
     
-    conn.commit()
+    # اگر هر دو کاربر به سوالات قبلی پاسخ داده‌اند، سوال جدید ارسال کن
+    if not unanswered_user and not unanswered_partner:
+        question = random.choice(questions)
+        
+        # ایجاد سوال جدید برای هر دو کاربر
+        cursor.execute("INSERT INTO questions (user_id, partner_id, question) VALUES (?, ?, ?)", (user_id, partner_id, question))
+        question_id_1 = cursor.lastrowid
+        
+        cursor.execute("INSERT INTO questions (user_id, partner_id, question) VALUES (?, ?, ?)", (partner_id, user_id, question))
+        question_id_2 = cursor.lastrowid
+        
+        conn.commit()
+        
+        # ارسال سوال به کاربران
+        await bot.send_message(user_id, f"💬 سوال جدید: {question}\n✏️ پاسخ خود را ارسال کنید.")
+        await bot.send_message(partner_id, f"💬 سوال جدید: {question}\n✏️ پاسخ خود را ارسال کنید.")
+        
+        # ارسال پیام به ادمین
+        await bot.send_message(ADMIN_ID, f"🔔 سوال جدید به کاربران {user_id} و {partner_id} ارسال شد:\n{question}")
+        
+        return True
     
-    await bot.send_message(user_id, f"💬 سوال جدید: {question}\n✏️ پاسخ خود را ارسال کنید.")
-    await bot.send_message(partner_id, f"💬 سوال جدید: {question}\n✏️ پاسخ خود را ارسال کنید.")
-    
-    # ارسال پیام به ادمین
-    await bot.send_message(ADMIN_ID, f"🔔 سوال جدید به کاربران {user_id} و {partner_id} ارسال شد:\n{question}")
+    return False
 
 async def scheduled_questions():
     """ ارسال سوال هر ۲ ساعت یک بار """
