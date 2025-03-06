@@ -484,21 +484,16 @@ async def send_question(user_id, partner_id):
     
     try:
         # بررسی آیا کاربران سوال بی‌پاسخ دارند
-        cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (user_id, partner_id))
+        cursor.execute("SELECT id, question, timestamp FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (user_id, partner_id))
         unanswered_user = cursor.fetchone()
         
-        cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (partner_id, user_id))
+        cursor.execute("SELECT id, question, timestamp FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (partner_id, user_id))
         unanswered_partner = cursor.fetchone()
         
         # اگر کاربر اصلی سوال بی‌پاسخ دارد، از ارسال سوال جدید خودداری کن
         if unanswered_user or unanswered_partner:
-            # اگر سوال بی‌پاسخ دارند، یک یادآوری برای هر دو ارسال کن
-            if unanswered_user:
-                await bot.send_message(user_id, f"⚠️ شما هنوز به سوال قبلی پاسخ نداده‌اید:\n\n{unanswered_user[1]}\n\n✏️ لطفاً ابتدا به این سوال پاسخ دهید.")
-            
-            if unanswered_partner:
-                await bot.send_message(partner_id, f"⚠️ شما هنوز به سوال قبلی پاسخ نداده‌اید:\n\n{unanswered_partner[1]}\n\n✏️ لطفاً ابتدا به این سوال پاسخ دهید.")
-            
+            # فقط اطلاع‌رسانی کنیم که سوال بی‌پاسخ وجود دارد، بدون ارسال یادآوری
+            # یادآوری‌ها توسط تابع send_reminders هر 5 ساعت ارسال می‌شوند
             return False
         
         # بررسی زمان آخرین سوال برای جلوگیری از ارسال سوال در کمتر از ۲ ساعت
@@ -512,7 +507,7 @@ async def send_question(user_id, partner_id):
         # اگر کمتر از دو ساعت از آخرین سوال گذشته، سوال جدید ارسال نکن (به جز اولین سوال)
         if last_question_time_user != 0 and (current_time - last_question_time_user) < two_hours_in_seconds:
             return False
-            
+        
         # اگر هر دو کاربر به سوالات قبلی پاسخ داده‌اند، سوال جدید ارسال کن
         question = random.choice(questions)
         
@@ -589,14 +584,19 @@ async def scheduled_questions():
 async def send_reminders():
     """ ارسال یادآوری هر ۵ ساعت برای سوالات بی‌پاسخ """
     while True:
+        # ابتدا منتظر می‌مانیم تا 5 ساعت بگذرد
+        await asyncio.sleep(18000)  # انتظار ۵ ساعت (18000 ثانیه)
+        
+        # سپس بررسی و ارسال یادآوری‌ها
         cursor.execute("SELECT q.id, q.user_id, q.partner_id, q.question, q.timestamp FROM questions q WHERE q.answer IS NULL")
         unanswered_questions = cursor.fetchall()
         current_time = int(time.time())
         five_hours_in_seconds = 18000  # 5 ساعت به ثانیه
+        two_hours_in_seconds = 7200  # 2 ساعت به ثانیه
         
         for question_id, user_id, partner_id, question, timestamp in unanswered_questions:
-            # فقط اگر حداقل 5 ساعت از زمان ایجاد سوال یا آخرین یادآوری گذشته باشد
-            if not timestamp or (current_time - timestamp) >= five_hours_in_seconds:
+            # بررسی آیا حداقل 2 ساعت از ایجاد سوال گذشته است
+            if timestamp and (current_time - timestamp) >= two_hours_in_seconds:
                 try:
                     await bot.send_message(user_id, f"🔔 یادآوری مجدد: شما هنوز به این سوال پاسخ نداده‌اید:\n\n{question}\n\n✏️ لطفاً پاسخ خود را ارسال کنید.")
                     # به‌روزرسانی زمان آخرین یادآوری
@@ -1501,6 +1501,12 @@ async def send_invitation_callback(callback_query: types.CallbackQuery):
     await callback_query.answer("✅ متن دعوتنامه ایجاد شد. آن را برای پارتنر خود ارسال کنید.", show_alert=True)
 
 async def main():
+    # به‌روزرسانی timestamp برای تمام سوالات بی‌پاسخ فعلی
+    current_time = int(time.time())
+    cursor.execute("UPDATE questions SET timestamp = ? WHERE answer IS NULL AND (timestamp IS NULL OR timestamp = 0)", (current_time,))
+    conn.commit()
+    print("✅ timestamp همه سوالات بی‌پاسخ به‌روزرسانی شد.")
+    
     # شروع تسک ارسال سوالات زمان‌بندی شده
     asyncio.create_task(scheduled_questions())
     
