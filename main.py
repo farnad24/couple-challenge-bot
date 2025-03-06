@@ -479,7 +479,7 @@ async def check_user_subscription(message: types.Message):
     
     return True
 
-async def send_question(user_id, partner_id):
+async def send_question(user_id, partner_id, force=False):
     """ ارسال سوال چالشی به دو پارتنر """
     
     try:
@@ -504,10 +504,10 @@ async def send_question(user_id, partner_id):
         
         two_hours_in_seconds = 7200  # 2 ساعت
         
-        # اگر کمتر از دو ساعت از آخرین سوال گذشته، سوال جدید ارسال نکن (به جز اولین سوال)
-        if last_question_time_user != 0 and (current_time - last_question_time_user) < two_hours_in_seconds:
+        # اگر force=True باشد یا کمتر از دو ساعت از آخرین سوال گذشته، سوال جدید ارسال کن (به جز اولین سوال)
+        if not force and last_question_time_user != 0 and (current_time - last_question_time_user) < two_hours_in_seconds:
             return False
-        
+            
         # اگر هر دو کاربر به سوالات قبلی پاسخ داده‌اند، سوال جدید ارسال کن
         question = random.choice(questions)
         
@@ -638,24 +638,19 @@ async def start(message: types.Message):
 
     partner_status = "❌ هیچ پارتنری ندارید." if not partner_id else f"✅ شما متصل هستید به: [{partner_id}](tg://user?id={partner_id})"
 
-    # ایجاد دکمه‌های منوی اصلی
-    menu = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="/connect - 🔗 اتصال به پارتنر")],
-            [KeyboardButton(text="/manage - 👤 مدیریت پارتنر")],
-            [KeyboardButton(text="/status - 📜 مشاهده وضعیت")],
-            [KeyboardButton(text="/support - 👨‍💻 پشتیبانی")],
-        ],
-        resize_keyboard=True
-    )
-
-    # ایجاد دکمه شیشه‌ای برای ارسال دعوتنامه
+    # ایجاد دکمه‌های منوی اصلی با استفاده از تابع جدید
+    if user_id == ADMIN_ID:
+        menu = get_admin_menu_keyboard()
+    else:
+        menu = get_main_menu_keyboard()
+    
+    # تعریف دکمه‌های اینلاین
     inline_buttons = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📲 ارسال دعوتنامه به پارتنر", callback_data="send_invitation")]
+            [InlineKeyboardButton(text="📨 ارسال دعوتنامه", callback_data="send_invitation")]
         ]
     )
-
+    
     await message.answer(
         f"سلام {message.from_user.first_name}!\n\n🔑 **کد اختصاصی شما:** {unique_code}\n📨 این کد را برای پارتنرت بفرست تا متصل شود.\n\n{partner_status}\n\n"
         f"برای اتصال به پارتنر روی دکمه '/connect - 🔗 اتصال به پارتنر' کلیک کنید یا دستور /connect را ارسال کنید.",
@@ -820,24 +815,16 @@ async def check_subscription_callback(callback: types.CallbackQuery):
         await callback.message.edit_text("✅ عضویت شما در کانال تایید شد. حالا می‌توانید از ربات استفاده کنید!")
         await callback.answer("✅ عضویت تایید شد")
         
-        # ایجاد دکمه‌های منوی اصلی
-        menu = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="/connect - 🔗 اتصال به پارتنر")],
-                [KeyboardButton(text="/manage - 👤 مدیریت پارتنر")],
-                [KeyboardButton(text="/status - 📜 مشاهده وضعیت")],
-                [KeyboardButton(text="/support - 👨‍💻 پشتیبانی")],
-            ],
-            resize_keyboard=True
-        )
-
-        # ایجاد دکمه شیشه‌ای برای ارسال دعوتنامه
+        # ایجاد دکمه‌های منوی اصلی با استفاده از تابع جدید
+        menu = get_main_menu_keyboard()
+        
+        # تعریف دکمه‌های اینلاین
         inline_buttons = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="📲 ارسال دعوتنامه به پارتنر", callback_data="send_invitation")]
+                [InlineKeyboardButton(text="📨 ارسال دعوتنامه", callback_data="send_invitation")]
             ]
         )
-
+        
         await callback.message.answer(
             f"سلام {callback.from_user.first_name}!\n\n🔑 **کد اختصاصی شما:** {unique_code}\n📨 این کد را برای پارتنرت بفرست تا متصل شود.\n\n{partner_status}\n\n"
             f"برای اتصال به پارتنر روی دکمه '/connect - 🔗 اتصال به پارتنر' کلیک کنید یا دستور /connect را ارسال کنید.",
@@ -1018,9 +1005,45 @@ async def cancel_support_callback(callback: types.CallbackQuery):
 
 @dp.message()
 async def process_message(message: types.Message):
-    """ پردازش پیام‌های ارسالی """
+    """پردازش پیام‌های معمولی (غیر دستوری)"""
     user_id = message.from_user.id
-    message_text = message.text
+    
+    # بررسی آیا پیام یکی از دکمه‌های منو است
+    if message.text == "⭐️ دریافت چالش جدید":
+        await challenge_button(message)
+        return
+    elif message.text == "🔄 وضعیت من":
+        await status_button(message)
+        return
+    elif message.text == "👥 پارتنر من":
+        await partner_button(message)
+        return
+    elif message.text == "📨 پیام به پارتنر":
+        await message_button(message)
+        return
+    elif message.text == "📞 پشتیبانی":
+        await support_button(message)
+        return
+    elif message.text == "⚙️ پنل مدیریت":
+        await admin_panel_btn(message)
+        return
+    # بررسی آیا پیام دستور broadcast است
+    elif message.text and message.text.startswith("/broadcast "):
+        await broadcast_cmd(message)
+        return
+    
+    # به‌روزرسانی اطلاعات کاربر برای آمارگیری بهتر
+    # این کار به ما کمک می‌کند اطلاعات کاربران را کامل‌تر داشته باشیم
+    username = message.from_user.username
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
+    
+    cursor.execute("""
+        UPDATE users 
+        SET username = ?, first_name = ?, last_name = ?
+        WHERE user_id = ?
+    """, (username, first_name, last_name, user_id))
+    conn.commit()
     
     # بررسی عضویت کاربر در کانال
     is_subscribed = await check_subscription(user_id)
@@ -1125,7 +1148,7 @@ async def process_message(message: types.Message):
     # بررسی کد پارتنر
     if waiting_for_code:
         try:
-            input_code = message_text.strip()
+            input_code = message.text.strip()
             
             # بررسی صحت کد
             cursor.execute("SELECT user_id FROM users WHERE unique_code=?", (input_code,))
@@ -1203,6 +1226,9 @@ async def process_message(message: types.Message):
         elif message.text.startswith("/support") or "پشتیبانی" in message.text:
             await support_cmd(message)
             return
+        elif message.text.startswith("/challenge") or "دریافت چالش جدید" in message.text:
+            await new_challenge_cmd(message)
+            return
     
     # بررسی اینکه آیا کاربر هنوز پارتنر ندارد
     if not partner_id:
@@ -1252,48 +1278,7 @@ async def process_message(message: types.Message):
                            (partner_id, user_id, question_text))
             partner_answer = cursor.fetchone()
             
-            if partner_answer and partner_answer[0]:  # اگر پارتنر پاسخ داده باشد
-                # ارسال پاسخ پارتنر به کاربر
-                await bot.send_message(user_id, 
-                                      f"🎯 هر دو نفر به چالش پاسخ دادید! پاسخ پارتنر شما:\n\n"
-                                      f"❓ سوال: {question_text}\n"
-                                      f"💬 پاسخ پارتنر: {partner_answer[0]}")
-                
-                # ارسال پاسخ کاربر به پارتنر
-                await bot.send_message(partner_id, 
-                                     f"🎯 هر دو نفر به چالش پاسخ دادید! پاسخ پارتنر شما:\n\n"
-                                     f"❓ سوال: {question_text}\n"
-                                     f"💬 پاسخ پارتنر: {answer_text}")
-            else:
-                # اگر پارتنر هنوز پاسخ نداده، به او اطلاع بده که پارتنرش پاسخ داده است
-                await bot.send_message(partner_id, f"💡 پارتنر شما به چالش اخیر پاسخ داده است. منتظر پاسخ شما هستیم!")
-                
-            # اگر مدیا وجود دارد، آن را نیز برای پارتنر ارسال کن
-            if media_type and media_id and partner_answer and partner_answer[0]:
-                try:
-                    if media_type == "photo":
-                        await bot.send_photo(partner_id, media_id, caption="📷 تصویر پاسخ پارتنر شما")
-                    elif media_type == "video":
-                        await bot.send_video(partner_id, media_id, caption="🎬 ویدیوی پاسخ پارتنر شما")
-                    elif media_type == "voice":
-                        await bot.send_voice(partner_id, media_id, caption="🎤 صدای پاسخ پارتنر شما")
-                    elif media_type == "video_note":
-                        await bot.send_video_note(partner_id, media_id)
-                except Exception as e:
-                    print(f"خطا در ارسال مدیا به پارتنر: {e}")
-                    # عدم نمایش خطا به کاربر چون این خطا اهمیت کمتری دارد
-                
-            # بررسی آیا همه سوالات پاسخ داده شده‌اند
-            cursor.execute("SELECT COUNT(*) FROM questions WHERE (user_id = ? OR user_id = ?) AND answer IS NULL", 
-                           (user_id, partner_id))
-            unanswered_count = cursor.fetchone()[0]
-            
-            # اگر سوال بی‌پاسخی وجود ندارد، سوال جدید ارسال کن
-            if unanswered_count == 0:
-                # ارسال سوال جدید
-                await send_question(user_id, partner_id)
-            
-            # اطلاع به ادمین
+            # تهیه اطلاعات برای ادمین
             try:
                 user_info = await bot.get_chat(user_id)
                 user_identifier = user_info.username if user_info.username else user_info.first_name
@@ -1304,9 +1289,10 @@ async def process_message(message: types.Message):
             admin_notification += f"سوال: {question_text}\n"
             admin_notification += f"پاسخ: {answer_text or 'بدون متن'}"
             
+            # ارسال اطلاعات به ادمین
             await bot.send_message(SUPPORT_CHAT_ID, admin_notification)
             
-            # اگر مدیا وجود دارد، آن را نیز برای ادمین ارسال کن
+            # ارسال مدیا به ادمین
             if media_type and media_id:
                 try:
                     if media_type == "photo":
@@ -1319,11 +1305,49 @@ async def process_message(message: types.Message):
                         await bot.send_video_note(SUPPORT_CHAT_ID, media_id)
                 except Exception as e:
                     print(f"خطا در ارسال مدیا به ادمین: {e}")
-                    # عدم نمایش خطا به کاربر
+            
+            if partner_answer and partner_answer[0]:  # اگر پارتنر پاسخ داده باشد
+                # ارسال پاسخ پارتنر به کاربر
+                await bot.send_message(user_id, 
+                                      f"🎯 هر دو نفر به چالش پاسخ دادید! پاسخ پارتنر شما:\n\n"
+                                      f"❓ سوال: {question_text}\n"
+                                      f"💬 پاسخ پارتنر: {partner_answer[0]}")
+                
+                # ارسال پاسخ کاربر به پارتنر
+                await bot.send_message(partner_id, 
+                                     f"🎯 هر دو نفر به چالش پاسخ دادید! پاسخ پارتنر شما:\n\n"
+                                     f"❓ سوال: {question_text}\n"
+                                     f"💬 پاسخ پارتنر: {answer_text}")
+                
+                # ارسال مدیا (در صورت وجود) به پارتنر
+                if media_type and media_id:
+                    try:
+                        if media_type == "photo":
+                            await bot.send_photo(partner_id, media_id, caption="📷 تصویر پاسخ پارتنر شما")
+                        elif media_type == "video":
+                            await bot.send_video(partner_id, media_id, caption="🎬 ویدیوی پاسخ پارتنر شما")
+                        elif media_type == "voice":
+                            await bot.send_voice(partner_id, media_id, caption="🎤 صدای پاسخ پارتنر شما")
+                        elif media_type == "video_note":
+                            await bot.send_video_note(partner_id, media_id)
+                    except Exception as e:
+                        print(f"خطا در ارسال مدیا به پارتنر: {e}")
+                
+                # بررسی همه سوالات بی‌پاسخ
+                cursor.execute("SELECT COUNT(*) FROM questions WHERE (user_id = ? OR user_id = ?) AND answer IS NULL", 
+                              (user_id, partner_id))
+                unanswered_count = cursor.fetchone()[0]
+                
+                # ارسال سوال جدید اگر همه سوالات پاسخ داده شده‌اند
+                if unanswered_count == 0:
+                    await send_question(user_id, partner_id)
+            else:
+                # اطلاع به پارتنر که کاربر پاسخ داده است
+                await bot.send_message(partner_id, f"💡 پارتنر شما به چالش اخیر پاسخ داده است. منتظر پاسخ شما هستیم!")
             
             # توقف پردازش بیشتر پیام، چون این یک پاسخ به چالش بود
             return
-            
+        
         except Exception as e:
             print(f"خطا در ذخیره پاسخ: {e}")
             await message.answer("❌ خطایی در ذخیره پاسخ رخ داد. لطفاً دوباره تلاش کنید.")
@@ -1420,6 +1444,19 @@ async def process_partner_connection(message: types.Message, partner_id: int):
         cursor.execute("SELECT unique_code FROM users WHERE user_id=?", (user_id,))
         user_code = cursor.fetchone()[0]
         
+        # بررسی چالش‌های بی‌پاسخ قبلی بین این دو کاربر
+        cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (user_id, partner_id))
+        user_unanswered = cursor.fetchone()
+        
+        cursor.execute("SELECT id, question FROM questions WHERE user_id = ? AND partner_id = ? AND answer IS NULL", (partner_id, user_id))
+        partner_unanswered = cursor.fetchone()
+        
+        # حذف چالش‌های بی‌پاسخ قبلی با پارتنرهای دیگر (برای هر دو کاربر)
+        # برای کاربر اصلی
+        cursor.execute("DELETE FROM questions WHERE user_id = ? AND partner_id != ? AND answer IS NULL", (user_id, partner_id))
+        # برای پارتنر جدید
+        cursor.execute("DELETE FROM questions WHERE user_id = ? AND partner_id != ? AND answer IS NULL", (partner_id, user_id))
+        
         # اتصال کاربران به یکدیگر
         cursor.execute("UPDATE users SET partner_id=? WHERE user_id=?", (partner_id, user_id))
         cursor.execute("UPDATE users SET partner_id=? WHERE user_id=?", (user_id, partner_id))
@@ -1444,9 +1481,24 @@ async def process_partner_connection(message: types.Message, partner_id: int):
                 f"🔗 اتصال جدید:\n{user_identifier} به {partner_identifier} متصل شد."
             )
             
-            # ارسال اولین سوال چالشی
-            await asyncio.sleep(2)  # مکث کوتاه
-            await send_question(user_id, partner_id)
+            # مکث کوتاه
+            await asyncio.sleep(2)
+            
+            # بررسی آیا این دو کاربر قبلاً چالش بی‌پاسخی داشته‌اند
+            has_unanswered_challenges = False
+            
+            if user_unanswered:
+                has_unanswered_challenges = True
+                await bot.send_message(user_id, f"⚠️ یادآوری: شما هنوز به این چالش قبلی پاسخ نداده‌اید:\n\n{user_unanswered[1]}\n\n✏️ لطفاً پاسخ خود را ارسال کنید.")
+            
+            if partner_unanswered:
+                has_unanswered_challenges = True
+                await bot.send_message(partner_id, f"⚠️ یادآوری: شما هنوز به این چالش قبلی پاسخ نداده‌اید:\n\n{partner_unanswered[1]}\n\n✏️ لطفاً پاسخ خود را ارسال کنید.")
+            
+            # همیشه یک چالش جدید ارسال می‌کنیم مگر اینکه چالش بی‌پاسخی از قبل وجود داشته باشد
+            if not has_unanswered_challenges:
+                # ارسال اولین سوال چالشی - با پارامتر force=True برای نادیده گرفتن محدودیت زمانی
+                await send_question(user_id, partner_id, force=True)
             
             return True
             
@@ -1500,6 +1552,62 @@ async def send_invitation_callback(callback_query: types.CallbackQuery):
     await callback_query.message.answer(invitation_text)
     await callback_query.answer("✅ متن دعوتنامه ایجاد شد. آن را برای پارتنر خود ارسال کنید.", show_alert=True)
 
+# ایجاد دکمه برای درخواست چالش جدید
+def get_main_menu_keyboard():
+    """ ایجاد کیبورد منوی اصلی """
+    menu = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⭐️ دریافت چالش جدید")],
+            [KeyboardButton(text="🔄 وضعیت من"), KeyboardButton(text="👥 پارتنر من")],
+            [KeyboardButton(text="📨 پیام به پارتنر"), KeyboardButton(text="📞 پشتیبانی")]
+        ],
+        resize_keyboard=True
+    )
+    
+    return menu
+
+def get_admin_menu_keyboard():
+    """ ایجاد کیبورد منوی اصلی برای ادمین """
+    menu = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⭐️ دریافت چالش جدید")],
+            [KeyboardButton(text="🔄 وضعیت من"), KeyboardButton(text="👥 پارتنر من")],
+            [KeyboardButton(text="📨 پیام به پارتنر"), KeyboardButton(text="📞 پشتیبانی")],
+            [KeyboardButton(text="⚙️ پنل مدیریت")]
+        ],
+        resize_keyboard=True
+    )
+    
+    return menu
+
+# افزودن هندلر جدید برای درخواست چالش جدید
+@dp.message(Command("challenge"))
+async def new_challenge_cmd(message: types.Message):
+    """ درخواست دریافت چالش جدید """
+    user_id = message.from_user.id
+    
+    # بررسی عضویت کاربر در کانال
+    if not await check_user_subscription(message):
+        return
+    
+    # بررسی وجود پارتنر
+    cursor.execute("SELECT partner_id FROM users WHERE user_id=?", (user_id,))
+    partner = cursor.fetchone()
+    
+    if not partner or not partner[0]:
+        await message.answer("⚠️ شما هنوز به پارتنری متصل نشده‌اید. لطفاً ابتدا با استفاده از دستور /connect یا دکمه مربوطه به یک پارتنر متصل شوید.")
+        return
+    
+    partner_id = partner[0]
+    
+    # ارسال چالش جدید با استفاده از پارامتر force=True
+    result = await send_question(user_id, partner_id, force=True)
+    
+    if result:
+        await message.answer("✅ چالش جدید برای شما و پارتنر شما ارسال شد!")
+    else:
+        await message.answer("⚠️ امکان ارسال چالش جدید در حال حاضر وجود ندارد. لطفاً ابتدا به چالش قبلی پاسخ دهید.")
+
 async def main():
     # به‌روزرسانی timestamp برای تمام سوالات بی‌پاسخ فعلی
     current_time = int(time.time())
@@ -1515,6 +1623,616 @@ async def main():
     
     # شروع پالسینگ ربات
     await dp.start_polling(bot)
+
+@dp.message(Command("broadcast"))
+async def broadcast_cmd(message: types.Message):
+    """ارسال پیام گروهی به تمامی کاربران ربات (فقط برای ادمین)"""
+    user_id = message.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await message.answer("⛔️ شما دسترسی به این بخش را ندارید.")
+        return
+    
+    # بررسی متن پیام
+    command_parts = message.text.split(maxsplit=1)
+    if len(command_parts) < 2:
+        await message.answer("⚠️ لطفا پیام خود را بعد از دستور /broadcast وارد کنید.")
+        return
+    
+    broadcast_message = command_parts[1]
+    
+    # دریافت لیست تمام کاربران
+    cursor.execute("SELECT user_id FROM users")
+    all_users = cursor.fetchall()
+    
+    success_count = 0
+    fail_count = 0
+    
+    await message.answer("🔄 در حال ارسال پیام گروهی...")
+    
+    # ارسال پیام به تمام کاربران
+    for user in all_users:
+        try:
+            await bot.send_message(user[0], f"📢 پیام از طرف مدیریت ربات:\n\n{broadcast_message}")
+            success_count += 1
+            # کمی تاخیر برای جلوگیری از محدودیت‌های تلگرام
+            await asyncio.sleep(0.05)
+        except Exception:
+            fail_count += 1
+    
+    # گزارش نتیجه به ادمین
+    await message.answer(
+        f"✅ گزارش ارسال پیام گروهی:\n"
+        f"📨 ارسال موفق: {success_count}\n"
+        f"❌ ارسال ناموفق: {fail_count}\n"
+        f"📊 مجموع: {len(all_users)}"
+    )
+
+@dp.message(Command("stats"))
+async def stats_cmd(message: types.Message):
+    """نمایش آمار و اطلاعات پیشرفته ربات (فقط برای ادمین)"""
+    user_id = message.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await message.answer("⛔️ شما دسترسی به این بخش را ندارید.")
+        return
+    
+    # جمع‌آوری آمار کاربران
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users WHERE partner_id IS NOT NULL")
+    connected_users = cursor.fetchone()[0]
+    
+    # تعداد پیام‌های تبادل شده
+    cursor.execute("SELECT COUNT(*) FROM messages")
+    total_messages = cursor.fetchone()[0]
+    
+    # تعداد سوالات و پاسخ‌ها
+    cursor.execute("SELECT COUNT(*) FROM questions")
+    total_questions = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM questions WHERE answer IS NOT NULL")
+    answered_questions = cursor.fetchone()[0]
+    
+    # کاربران فعال در ۲۴ ساعت گذشته (براساس پیام یا سوال)
+    yesterday_timestamp = int(time.time()) - (24 * 3600)
+    cursor.execute("""
+        SELECT COUNT(DISTINCT user_id) FROM (
+            SELECT sender_id as user_id FROM messages WHERE id IN (
+                SELECT MAX(id) FROM messages GROUP BY sender_id
+            ) AND id IN (
+                SELECT id FROM messages WHERE id > (
+                    SELECT COALESCE(MAX(id), 0) FROM messages WHERE sender_id = ? 
+                    AND id IN (SELECT MAX(id) FROM messages GROUP BY sender_id)
+                ) - 100
+            )
+            UNION
+            SELECT user_id FROM questions WHERE timestamp > ?
+        )
+    """, (ADMIN_ID, yesterday_timestamp))
+    active_users_24h = cursor.fetchone()[0]
+    
+    # نمایش آمار به ادمین
+    stats_message = (
+        "📊 **آمار و اطلاعات ربات**\n\n"
+        f"👥 **کاربران**:\n"
+        f"📌 کل کاربران: {total_users}\n"
+        f"🔗 کاربران متصل شده: {connected_users}\n"
+        f"🚀 کاربران فعال (۲۴ ساعت اخیر): {active_users_24h}\n\n"
+        f"💬 **پیام‌ها و سوالات**:\n"
+        f"📨 کل پیام‌های ارسالی: {total_messages}\n"
+        f"❓ کل سوالات: {total_questions}\n"
+        f"✅ سوالات پاسخ داده شده: {answered_questions}\n"
+        f"⏳ سوالات بی‌پاسخ: {total_questions - answered_questions}\n\n"
+        f"📈 **نرخ‌ها**:\n"
+        f"💑 نرخ اتصال: {(connected_users / total_users * 100) if total_users > 0 else 0:.1f}%\n"
+        f"📝 نرخ پاسخگویی: {(answered_questions / total_questions * 100) if total_questions > 0 else 0:.1f}%"
+    )
+    
+    # ایجاد کیبورد برای عملیات‌های مدیریتی
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 آمار جزئی‌تر", callback_data="detailed_stats"),
+                InlineKeyboardButton(text="📱 کاربران فعال", callback_data="active_users")
+            ],
+            [
+                InlineKeyboardButton(text="⚠️ پاکسازی غیرفعال‌ها", callback_data="purge_inactive"),
+                InlineKeyboardButton(text="📨 پیام گروهی", callback_data="new_broadcast")
+            ]
+        ]
+    )
+    
+    await message.answer(stats_message, reply_markup=admin_keyboard, parse_mode="Markdown")
+
+@dp.callback_query(lambda c: c.data == "detailed_stats")
+async def detailed_stats_callback(callback: types.CallbackQuery):
+    """نمایش آمار جزئی‌تر ربات"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    # آمار کاربران جدید طی هفته اخیر
+    week_ago = int(time.time()) - (7 * 24 * 3600)
+    cursor.execute("""
+        SELECT COUNT(*) FROM users 
+        WHERE user_id IN (
+            SELECT MIN(user_id) FROM users 
+            GROUP BY user_id
+            HAVING MIN(rowid) IN (
+                SELECT rowid FROM users 
+                WHERE rowid > (SELECT MAX(rowid) FROM users) - 100
+            )
+        )
+    """)
+    new_users_week = cursor.fetchone()[0]
+    
+    # آمار فعالیت کاربران
+    cursor.execute("""
+        SELECT 
+            COUNT(CASE WHEN partner_id IS NOT NULL THEN 1 END) as connected,
+            COUNT(CASE WHEN partner_id IS NULL THEN 1 END) as single
+        FROM users
+    """)
+    connected, single = cursor.fetchone()
+    
+    # میانگین تعداد پیام‌های ارسالی هر کاربر
+    cursor.execute("""
+        SELECT AVG(msg_count) FROM (
+            SELECT sender_id, COUNT(*) as msg_count FROM messages
+            GROUP BY sender_id
+        )
+    """)
+    avg_messages = cursor.fetchone()[0]
+    
+    # تعداد چالش‌های فعال
+    cursor.execute("SELECT COUNT(*) FROM questions WHERE answer IS NULL")
+    active_challenges = cursor.fetchone()[0]
+    
+    detailed_stats = (
+        "📈 **آمار تفصیلی ربات**\n\n"
+        f"👤 **کاربران**:\n"
+        f"🆕 کاربران جدید (هفته اخیر): {new_users_week}\n"
+        f"🔄 نسبت کاربران متصل به مجرد: {connected}:{single}\n\n"
+        f"💬 **فعالیت**:\n"
+        f"📊 میانگین پیام هر کاربر: {avg_messages:.1f}\n"
+        f"🎯 چالش‌های فعال: {active_challenges}\n\n"
+        f"⏱ آمار به‌روزرسانی شد: {time.strftime('%H:%M:%S')}"
+    )
+    
+    # دکمه بازگشت به منوی اصلی آمار
+    back_button = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 بازگشت به منوی آمار", callback_data="back_to_stats")]
+        ]
+    )
+    
+    await callback.message.edit_text(detailed_stats, reply_markup=back_button, parse_mode="Markdown")
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "active_users")
+async def active_users_callback(callback: types.CallbackQuery):
+    """نمایش لیست کاربران فعال اخیر"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    # دریافت لیست کاربران فعال در هفته اخیر
+    week_ago = int(time.time()) - (7 * 24 * 3600)
+    cursor.execute("""
+        SELECT DISTINCT u.user_id, u.username, u.first_name, u.last_name 
+        FROM users u
+        JOIN messages m ON u.user_id = m.sender_id
+        WHERE m.id IN (
+            SELECT MAX(id) FROM messages
+            WHERE sender_id = u.user_id
+            GROUP BY sender_id
+        )
+        ORDER BY m.id DESC
+        LIMIT 20
+    """)
+    
+    active_users = cursor.fetchall()
+    
+    if not active_users:
+        await callback.message.edit_text(
+            "⚠️ هیچ کاربر فعالی یافت نشد.", 
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_stats")]]
+            )
+        )
+        await callback.answer()
+        return
+    
+    active_users_text = "👥 **۲۰ کاربر فعال اخیر**:\n\n"
+    
+    for i, (uid, username, fname, lname) in enumerate(active_users, 1):
+        display_name = fname or username or "بدون نام"
+        if lname:
+            display_name += f" {lname}"
+        active_users_text += f"{i}. [{display_name}](tg://user?id={uid})"
+        if username:
+            active_users_text += f" - @{username}"
+        active_users_text += "\n"
+    
+    # دکمه بازگشت
+    back_button = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 بازگشت به منوی آمار", callback_data="back_to_stats")]
+        ]
+    )
+    
+    await callback.message.edit_text(active_users_text, reply_markup=back_button, parse_mode="Markdown")
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_stats")
+async def back_to_stats_callback(callback: types.CallbackQuery):
+    """بازگشت به منوی اصلی آمار"""
+    # فراخوانی مجدد تابع آمار
+    message = callback.message
+    # ایجاد یک پیام مجازی برای فراخوانی تابع stats_cmd
+    mock_message = types.Message(
+        message_id=message.message_id,
+        date=message.date,
+        chat=message.chat,
+        from_user=callback.from_user,
+        text="/stats",
+        bot=bot,
+        reply_to_message=None,
+        sender_chat=None,
+        forward_from=None,
+        forward_from_chat=None,
+        forward_from_message_id=None,
+        forward_signature=None,
+        forward_date=None,
+        reply_to_message_id=None,
+        media_group_id=None,
+        author_signature=None,
+        entities=None,
+        caption=None,
+        caption_entities=None,
+        has_protected_content=None,
+        edit_date=None,
+        is_topic_message=None,
+        message_thread_id=None,
+        forum_topic_created=None,
+        forum_topic_closed=None,
+        forum_topic_reopened=None,
+        forum_topic_edited=None,
+        general_forum_topic_hidden=None,
+        general_forum_topic_unhidden=None,
+        via_bot=None,
+        restrict_content=None,
+        web_page_preview=None
+    )
+    await stats_cmd(mock_message)
+    await callback.message.delete()
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "new_broadcast")
+async def new_broadcast_callback(callback: types.CallbackQuery):
+    """شروع مراحل ارسال پیام گروهی جدید"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "📣 **ارسال پیام گروهی جدید**\n\n"
+        "لطفا متن پیام گروهی خود را با فرمت زیر ارسال کنید:\n\n"
+        "`/broadcast متن پیام شما در اینجا`\n\n"
+        "⚠️ توجه: این پیام به تمامی کاربران ربات ارسال خواهد شد."
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "purge_inactive")
+async def purge_inactive_callback(callback: types.CallbackQuery):
+    """حذف کاربران غیرفعال (بیش از 3 ماه)"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    # کیبورد تایید
+    confirm_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ بله، حذف شوند", callback_data="confirm_purge"),
+                InlineKeyboardButton(text="❌ خیر، لغو عملیات", callback_data="cancel_purge")
+            ]
+        ]
+    )
+    
+    three_months_ago = int(time.time()) - (90 * 24 * 3600)
+    
+    # شمارش کاربران غیرفعال
+    cursor.execute("""
+        SELECT COUNT(*) FROM users 
+        WHERE user_id NOT IN (
+            SELECT DISTINCT sender_id FROM messages 
+            WHERE sender_id IN (SELECT user_id FROM users)
+            AND id > (SELECT MAX(id) FROM messages) - 1000
+        )
+        AND user_id != ?
+    """, (ADMIN_ID,))
+    
+    inactive_count = cursor.fetchone()[0]
+    
+    await callback.message.edit_text(
+        f"⚠️ **حذف کاربران غیرفعال**\n\n"
+        f"تعداد {inactive_count} کاربر غیرفعال شناسایی شدند.\n"
+        f"آیا مطمئن هستید که می‌خواهید این کاربران را حذف کنید؟",
+        reply_markup=confirm_keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "confirm_purge")
+async def confirm_purge_callback(callback: types.CallbackQuery):
+    """تایید و انجام عملیات حذف کاربران غیرفعال"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    three_months_ago = int(time.time()) - (90 * 24 * 3600)
+    
+    # شناسایی کاربران غیرفعال
+    cursor.execute("""
+        SELECT user_id FROM users 
+        WHERE user_id NOT IN (
+            SELECT DISTINCT sender_id FROM messages 
+            WHERE sender_id IN (SELECT user_id FROM users)
+            AND id > (SELECT MAX(id) FROM messages) - 1000
+        )
+        AND user_id != ?
+    """, (ADMIN_ID,))
+    
+    inactive_users = [user[0] for user in cursor.fetchall()]
+    
+    if not inactive_users:
+        await callback.message.edit_text("✅ هیچ کاربر غیرفعالی برای حذف یافت نشد.")
+        await callback.answer()
+        return
+    
+    # حذف کاربران غیرفعال
+    for user_id in inactive_users:
+        # ابتدا حذف پیام‌ها و سوالات مرتبط
+        cursor.execute("DELETE FROM messages WHERE sender_id = ? OR receiver_id = ?", (user_id, user_id))
+        cursor.execute("DELETE FROM questions WHERE user_id = ? OR partner_id = ?", (user_id, user_id))
+        
+        # سپس حذف خود کاربر
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    
+    conn.commit()
+    
+    await callback.message.edit_text(
+        f"✅ عملیات با موفقیت انجام شد.\n"
+        f"تعداد {len(inactive_users)} کاربر غیرفعال حذف شدند."
+    )
+    await callback.answer("عملیات با موفقیت انجام شد", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "cancel_purge")
+async def cancel_purge_callback(callback: types.CallbackQuery):
+    """لغو عملیات حذف کاربران غیرفعال"""
+    user_id = callback.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+        return
+    
+    await callback.message.edit_text("❌ عملیات حذف کاربران غیرفعال لغو شد.")
+    await callback.answer()
+
+@dp.message(lambda message: message.text == "⚙️ پنل مدیریت")
+async def admin_panel_btn(message: types.Message):
+    """پاسخ به دکمه پنل مدیریت"""
+    user_id = message.from_user.id
+    
+    # بررسی دسترسی ادمین
+    if user_id != ADMIN_ID:
+        await message.answer("⛔️ شما دسترسی به این بخش را ندارید.")
+        return
+    
+    # ایجاد کیبورد اینلاین برای دستورات مدیریتی
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 آمار ربات", callback_data="show_stats")],
+            [InlineKeyboardButton(text="📢 ارسال پیام گروهی", callback_data="new_broadcast")],
+            [InlineKeyboardButton(text="🗑 پاکسازی کاربران غیرفعال", callback_data="purge_inactive")],
+        ]
+    )
+    
+    await message.answer(
+        "⚙️ **پنل مدیریت ربات**\n\n"
+        "از طریق این بخش می‌توانید عملیات مدیریتی ربات را انجام دهید:",
+        reply_markup=admin_keyboard,
+        parse_mode="Markdown"
+    )
+
+@dp.callback_query(lambda c: c.data == "show_stats")
+async def show_stats_callback(callback: types.CallbackQuery):
+    """نمایش آمار ربات"""
+    try:
+        user_id = callback.from_user.id
+        
+        # بررسی دسترسی ادمین
+        if user_id != ADMIN_ID:
+            await callback.answer("⛔️ شما دسترسی به این بخش را ندارید.", show_alert=True)
+            return
+        
+        # جمع‌آوری آمار کاربران به صورت مستقیم
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM users WHERE partner_id IS NOT NULL")
+        connected_users = cursor.fetchone()[0]
+        
+        # تعداد پیام‌های تبادل شده
+        cursor.execute("SELECT COUNT(*) FROM messages")
+        total_messages = cursor.fetchone()[0]
+        
+        # تعداد سوالات و پاسخ‌ها
+        cursor.execute("SELECT COUNT(*) FROM questions")
+        total_questions = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM questions WHERE answer IS NOT NULL")
+        answered_questions = cursor.fetchone()[0]
+        
+        # کاربران فعال در ۲۴ ساعت گذشته (براساس پیام یا سوال)
+        yesterday_timestamp = int(time.time()) - (24 * 3600)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT user_id) FROM (
+                SELECT sender_id as user_id FROM messages WHERE id IN (
+                    SELECT MAX(id) FROM messages GROUP BY sender_id
+                ) AND id IN (
+                    SELECT id FROM messages WHERE id > (
+                        SELECT COALESCE(MAX(id), 0) FROM messages WHERE sender_id = ? 
+                        AND id IN (SELECT MAX(id) FROM messages GROUP BY sender_id)
+                    ) - 100
+                )
+                UNION
+                SELECT user_id FROM questions WHERE timestamp > ?
+            )
+        """, (ADMIN_ID, yesterday_timestamp))
+        active_users_24h = cursor.fetchone()[0]
+        
+        # نمایش آمار به ادمین
+        stats_message = (
+            "📊 **آمار و اطلاعات ربات**\n\n"
+            f"👥 **کاربران**:\n"
+            f"📌 کل کاربران: {total_users}\n"
+            f"🔗 کاربران متصل شده: {connected_users}\n"
+            f"🚀 کاربران فعال (۲۴ ساعت اخیر): {active_users_24h}\n\n"
+            f"💬 **پیام‌ها و سوالات**:\n"
+            f"📨 کل پیام‌های ارسالی: {total_messages}\n"
+            f"❓ کل سوالات: {total_questions}\n"
+            f"✅ سوالات پاسخ داده شده: {answered_questions}\n"
+            f"⏳ سوالات بی‌پاسخ: {total_questions - answered_questions}\n\n"
+            f"📈 **نرخ‌ها**:\n"
+            f"💑 نرخ اتصال: {(connected_users / total_users * 100) if total_users > 0 else 0:.1f}%\n"
+            f"📝 نرخ پاسخگویی: {(answered_questions / total_questions * 100) if total_questions > 0 else 0:.1f}%"
+        )
+        
+        # ایجاد کیبورد برای عملیات‌های مدیریتی
+        admin_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📊 آمار جزئی‌تر", callback_data="detailed_stats"),
+                    InlineKeyboardButton(text="📱 کاربران فعال", callback_data="active_users")
+                ],
+                [
+                    InlineKeyboardButton(text="⚠️ پاکسازی غیرفعال‌ها", callback_data="purge_inactive"),
+                    InlineKeyboardButton(text="📨 پیام گروهی", callback_data="new_broadcast")
+                ]
+            ]
+        )
+        
+        # سعی کن از ارسال پیام جدید به جای ویرایش استفاده کنی
+        try:
+            # ابتدا سعی می‌کنیم پیام را ویرایش کنیم
+            await callback.message.edit_text(stats_message, reply_markup=admin_keyboard, parse_mode="Markdown")
+        except Exception as edit_error:
+            logging.error(f"خطا در ویرایش پیام آمار: {edit_error}")
+            # اگر ویرایش با خطا مواجه شد، پیام را حذف کرده و یک پیام جدید ارسال می‌کنیم
+            await callback.message.delete()
+            await callback.message.answer(stats_message, reply_markup=admin_keyboard, parse_mode="Markdown")
+        
+        await callback.answer("آمار به‌روزرسانی شد")
+    except Exception as e:
+        logging.error(f"خطا در نمایش آمار: {e}")
+        await callback.answer(f"خطایی رخ داد: {str(e)}", show_alert=True)
+        try:
+            # ارسال پیام ساده در صورت خطا
+            await callback.message.answer(f"⚠️ خطایی در دریافت آمار رخ داد: {str(e)}")
+        except Exception:
+            # اگر ارسال پیام هم موفقیت‌آمیز نبود، نادیده بگیر
+            pass
+
+@dp.message(lambda message: message.text == "⭐️ دریافت چالش جدید")
+async def challenge_button(message: types.Message):
+    """دکمه دریافت چالش جدید"""
+    # استفاده از تابع قبلی برای ارسال چالش
+    await new_challenge_cmd(message)
+
+@dp.message(lambda message: message.text == "🔄 وضعیت من")
+async def status_button(message: types.Message):
+    """دکمه نمایش وضعیت کاربر"""
+    # استفاده از تابع قبلی برای نمایش وضعیت
+    await show_status_cmd(message)
+
+@dp.message(lambda message: message.text == "👥 پارتنر من")
+async def partner_button(message: types.Message):
+    """دکمه مدیریت پارتنر"""
+    # استفاده از تابع قبلی برای مدیریت پارتنر
+    await manage_partner_cmd(message)
+
+@dp.message(lambda message: message.text == "📨 پیام به پارتنر")
+async def message_button(message: types.Message):
+    """دکمه ارسال پیام به پارتنر"""
+    user_id = message.from_user.id
+    
+    # بررسی عضویت کاربر در کانال
+    is_subscribed = await check_subscription(user_id)
+    if not is_subscribed:
+        subscription_keyboard = get_subscription_keyboard()
+        await message.answer(
+            f"⚠️ برای استفاده از ربات، ابتدا باید در کانال {CHANNEL_TITLE} عضو شوید.",
+            reply_markup=subscription_keyboard
+        )
+        return
+    
+    # بررسی وجود پارتنر
+    cursor.execute("SELECT partner_id FROM users WHERE user_id=?", (user_id,))
+    user_data = cursor.fetchone()
+    
+    if not user_data or not user_data[0]:
+        # پارتنری وجود ندارد
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 اتصال به پارتنر", callback_data="start_connect")]
+            ]
+        )
+        await message.answer("⚠️ شما هنوز به پارتنری متصل نیستید. ابتدا باید با کسی ارتباط برقرار کنید.", reply_markup=keyboard)
+        return
+    
+    partner_id = user_data[0]
+    
+    # اطلاعات پارتنر
+    try:
+        partner_info = await bot.get_chat(partner_id)
+        partner_name = partner_info.first_name or "پارتنر"
+    except:
+        partner_name = "پارتنر"
+    
+    # ارسال راهنمای ارسال پیام
+    await message.answer(
+        f"💬 *ارسال پیام به {partner_name}*\n\n"
+        "پیام خود را بنویسید یا رسانه‌ای ارسال کنید. پیام شما مستقیماً برای پارتنر شما ارسال خواهد شد.\n\n"
+        "💡 شما می‌توانید متن، عکس، ویدیو، صدا، استیکر و... ارسال کنید.",
+        parse_mode="Markdown"
+    )
+
+@dp.message(lambda message: message.text == "📞 پشتیبانی")
+async def support_button(message: types.Message):
+    """دکمه پشتیبانی"""
+    # استفاده از تابع قبلی برای پشتیبانی
+    await support_cmd(message)
 
 if __name__ == "__main__":
     asyncio.run(main()) 
