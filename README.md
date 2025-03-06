@@ -69,7 +69,7 @@
 ### ۱. کلون کردن مخزن
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/hamdelibot.git
+git clone https://github.com/farnad24/couple-challenge-bot.git
 cd hamdelibot
 ```
 
